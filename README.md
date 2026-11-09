@@ -57,3 +57,20 @@ PDFs digitalizados podem precisar de OCR. O notebook inclui a instalação opcio
 ## Arquivo principal
 
 - [\`leitor_pdf_rpg.ipynb\`](leitor_pdf_rpg.ipynb) — notebook executável no Google Colab.
+
+## Chat local com Streamlit
+
+No Windows, abra o PowerShell na pasta do projeto e execute:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1
+```
+
+Na barra lateral, indique a pasta dos PDFs e clique em **Sincronizar livros**. A interface reutiliza a leitura, a busca e as citações do notebook. Você pode filtrar o acervo por livro e edição, digitar uma pergunta e abrir os trechos citados na resposta.
+
+A busca textual funciona sem chave. Para receber respostas em linguagem natural, informe a chave do Gemini no campo da barra lateral ou defina a variável de ambiente `GOOGLE_API_KEY` antes de iniciar o app. Nesse modo, o Gemini recebe a pergunta e o texto das páginas selecionadas.
+
+Para habilitar a busca semântica, instale `sentence-transformers` no mesmo ambiente e marque **Busca semântica** antes de sincronizar. A primeira sincronização nessa modalidade pode baixar o modelo e gerar os vetores. O app salva os índices locais na pasta `.leitor_pdf_rpg` e os reaproveita em sessões futuras.
+

@@ -1,0 +1,20 @@
+[theme]
+base = "light"
+primaryColor = "#858D94"
+backgroundColor = "#E5E7E9"
+secondaryBackgroundColor = "#F5F6F7"
+textColor = "#30343A"
+linkColor = "#65717A"
+borderColor = "#C4C9CE"
+showWidgetBorder = true
+baseRadius = "0.75rem"
+buttonRadius = "0.75rem"
+
+[theme.sidebar]
+backgroundColor = "#ECEEF0"
+secondaryBackgroundColor = "#F6F7F8"
+textColor = "#30343A"
+borderColor = "#C4C9CE"
+
+[client]
+toolbarMode = "minimal"

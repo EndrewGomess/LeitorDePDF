@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.leitor_pdf_rpg/
+.streamlit/secrets.toml
+/livros/
+/Livros/
