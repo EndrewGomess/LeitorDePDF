@@ -74,3 +74,15 @@ A busca textual funciona sem chave. Para receber respostas em linguagem natural,
 
 Para habilitar a busca semântica, instale `sentence-transformers` no mesmo ambiente e marque **Busca semântica** antes de sincronizar. A primeira sincronização nessa modalidade pode baixar o modelo e gerar os vetores. O app salva os índices locais na pasta `.leitor_pdf_rpg` e os reaproveita em sessões futuras.
 
+
+### Busca semântica no app local
+
+Para instalar a busca semântica no mesmo ambiente virtual do app, execute:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-semantic.txt
+```
+
+Depois, marque **Busca semântica** na barra lateral e clique em **Sincronizar grimório**. A primeira sincronização baixa o modelo multilíngue `intfloat/multilingual-e5-small` e cria vetores para as páginas. O app guarda os índices semânticos em `.leitor_pdf_rpg/semantico`, separados dos índices textuais, e os reutiliza nas próximas sessões.
+
+A busca textual procura termos e aliases; a semântica também aproxima perguntas e páginas pelo significado, inclusive entre português e inglês. Ela usa mais espaço, memória e tempo na primeira indexação. A geração de respostas continua dependendo do Gemini e da chave `GOOGLE_API_KEY`; a busca semântica por si só não precisa dessa chave.

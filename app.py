@@ -17,6 +17,100 @@ CELULAS_MOTOR = ("leitor-02", "leitor-06", "leitor-08", "leitor-10", "leitor-12"
 IMPORTS_COLAB = {"google.colab", "IPython.display"}
 IMPORTS_SEMANTICOS = {"torch", "sentence_transformers"}
 
+ALIASES_LOCAIS = (
+    ("fireball", "bola de fogo"),
+    ("magic missile", "magic missiles", "misseis magicos", "missil magico"),
+    ("counterspell", "contramagia", "contra-magica"),
+    ("healing word", "palavra curativa"),
+)
+
+
+def configurar_motor_local(motor):
+    """Adapta o motor do notebook para perguntas naturais no app local."""
+    if getattr(motor, "_configurado_para_app", False):
+        return motor
+
+    motor.ALIASES = (*motor.ALIASES, *ALIASES_LOCAIS)
+    motor.STOP.update({
+        "como", "funciona", "funcionam", "funcionar", "funcionamento",
+        "explique", "explica", "diga", "quero", "saber",
+    })
+    consulta_original = motor.consulta_lexical
+
+    def consulta_lexical_aprimorada(texto):
+        texto = motor.normalizar(texto)
+        texto = motor.re.sub(
+            r"^(?:por favor\s+)?(?:me\s+)?(?:explique|explica|diga|como\s+funciona|como\s+usar|quero\s+saber\s+sobre)\s+",
+            "",
+            texto,
+        )
+        return consulta_original(texto)
+
+    def validar_resposta_tolerante(bruta, contexto):
+        paginas = tuple(pagina for pagina, _ in contexto.values())
+        sem_resposta = motor.Resposta(
+            "insuficiente",
+            motor.SEM_RESPOSTA_VALIDADA,
+            paginas_relacionadas=paginas,
+        )
+        try:
+            dados = json.loads(bruta or "")
+        except (TypeError, ValueError):
+            return sem_resposta
+        if not isinstance(dados, dict):
+            return sem_resposta
+
+        status = dados.get("status")
+        if status == "fora_do_escopo":
+            return motor.Resposta(
+                status,
+                "Este acervo cobre Dungeons & Dragons 5e (2014) e a revisão de 2024.",
+            )
+        if status not in {"suficiente", "parcial"} or not isinstance(dados.get("blocos"), list):
+            return sem_resposta
+
+        blocos = []
+        fontes = {}
+        for bloco in dados["blocos"]:
+            if not isinstance(bloco, dict) or not isinstance(bloco.get("texto"), str):
+                continue
+            texto = bloco["texto"].strip()
+            citacoes = bloco.get("fontes")
+            if not texto or not isinstance(citacoes, list):
+                continue
+
+            ids = {}
+            for citacao in citacoes:
+                if not isinstance(citacao, dict):
+                    continue
+                id_ = citacao.get("id")
+                if type(id_) is int and id_ in contexto:
+                    ids[id_] = contexto[id_][0]
+            if not ids:
+                continue
+
+            referencias = " · ".join(
+                motor.escapar_markdown(pagina.referencia) for pagina in ids.values()
+            )
+            blocos.append(
+                f"{texto}\n\n**Fonte{'s' if len(ids) > 1 else ''}** · {referencias}"
+            )
+            fontes.update(ids)
+
+        if not blocos:
+            return sem_resposta
+        if len(blocos) != len(dados["blocos"]):
+            status = "parcial"
+        texto = "\n\n".join(blocos)
+        if status == "parcial":
+            texto += "\n\nA evidência localizada cobre apenas parte da pergunta."
+        return motor.Resposta(status, texto, tuple(fontes.values()))
+
+    motor.consulta_lexical = consulta_lexical_aprimorada
+    motor.validar_resposta = validar_resposta_tolerante
+    motor._configurado_para_app = True
+    return motor
+
 
 @st.cache_resource(show_spinner=False)
 def carregar_motor(semantica):
@@ -52,7 +146,7 @@ def carregar_motor(semantica):
     except Exception:
         sys.modules.pop(nome, None)
         raise
-    return motor
+    return configurar_motor_local(motor)
 
 
 @st.cache_data(show_spinner=False)
@@ -69,8 +163,7 @@ def aplicar_identidade_visual():
     ) if IMAGENS_FUNDO.is_dir() else []
     dragao = IMAGENS_FUNDO / "dragonbattle.jfif"
     if dragao in caminhos:
-        caminhos.remove(dragao)
-        caminhos.insert(0, dragao)
+        caminhos = [dragao]
     fundos = [
         f"url('data:image/{'jpeg' if caminho.suffix.lower() in {'.jpg', '.jpeg', '.jfif'} else 'png' if caminho.suffix.lower() == '.png' else 'webp'};base64,{imagem_em_base64(str(caminho), caminho.stat().st_mtime_ns)}')"
         for caminho in caminhos
@@ -90,21 +183,22 @@ def aplicar_identidade_visual():
         f"""
         <style>
         :root {{
-            --arcano-azul: #6F96AD;
-            --arcano-lilas: #B9A36D;
-            --ouro-antigo: #D9792B;
-            --noite: #090B0D;
-            --vidro: rgba(15, 17, 18, 0.92);
+            --arcano-azul: #75C9D6;
+            --arcano-lilas: #B99AB9;
+            --ouro-antigo: #DE7549;
+            --noite: #110D16;
+            --vidro: rgba(24, 17, 28, 0.76);
         }}
 
         .stApp {{
-            background-color: #090B0D;
-            background-image: linear-gradient(90deg, rgba(6, 8, 10, .30), rgba(6, 8, 10, .72)), {imagem_inicial};
+            min-height: 100vh;
+            background-color: var(--noite);
+            background-image: linear-gradient(90deg, rgba(17, 10, 22, .40), rgba(17, 10, 22, .18) 52%, rgba(17, 10, 22, .42)), {imagem_inicial};
             background-attachment: fixed;
-            background-position: center;
+            background-position: center center;
             background-size: cover;
             background-repeat: no-repeat;
-            animation: {"alternar-imagens " + duracao_fundo + " steps(1, end) infinite" if len(fundos) > 1 else "none"};
+            animation: none;
         }}
         {"@keyframes alternar-imagens { " + quadros + " }" if len(fundos) > 1 else ""}
         .stApp {{ color: #EEE5D2; }}
@@ -116,19 +210,20 @@ def aplicar_identidade_visual():
         }}
 
         .stMainBlockContainer {{
-            max-width: 1040px;
-            margin-top: 2rem;
-            margin-bottom: 2rem;
+            max-width: 1120px;
+            min-height: calc(100vh - 3rem);
+            margin-top: 1.5rem;
+            margin-bottom: 1.5rem;
             padding: 2.15rem 2.6rem 7rem;
-            background: linear-gradient(145deg, rgba(12, 14, 15, .94), rgba(21, 24, 26, .91));
+            background: linear-gradient(145deg, rgba(20, 13, 26, .55), rgba(20, 13, 26, .42));
             border: 1px solid rgba(185, 163, 109, .35);
             border-radius: 28px;
             box-shadow: 0 28px 80px rgba(0, 0, 0, .48), inset 0 1px rgba(255, 255, 255, .06);
-            backdrop-filter: blur(18px) saturate(90%);
+            backdrop-filter: none;
         }}
 
         section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, rgba(18, 20, 21, .98), rgba(10, 12, 13, .98));
+            background: linear-gradient(180deg, rgba(22, 13, 27, .88), rgba(15, 11, 22, .82));
             border-right: 1px solid rgba(185, 163, 109, .25);
         }}
 
@@ -271,7 +366,7 @@ def aplicar_identidade_visual():
         .stButton > button, .stFormSubmitButton > button {{
             border-color: rgba(185, 163, 109, .35);
             color: #1A110B;
-            background: linear-gradient(120deg, #D9792B, #E89A4A);
+            background: linear-gradient(120deg, #D66A42, #F0A05F);
             box-shadow: 0 7px 22px rgba(0, 0, 0, .28);
         }}
 
@@ -286,9 +381,54 @@ def aplicar_identidade_visual():
             background: rgba(18, 20, 21, .82);
         }}
 
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"],
+        [data-testid="stBottom"], [data-testid="stBottomBlockContainer"],
+        [data-testid="stHeader"], [data-testid="stToolbar"] {{
+            background: transparent !important;
+        }}
+        html, body {{ background-color: #110D16 !important; }}
+        [data-testid="stBottom"], [data-testid="stBottom"] > div,
+        [data-testid="stBottomBlockContainer"] {{
+            background: transparent !important;
+            box-shadow: none !important;
+        }}
+        [data-testid="stBottomBlockContainer"] {{
+            padding: .7rem 1.2rem 1rem !important;
+        }}
+        [data-testid="stChatInput"] {{
+            background: rgba(23, 17, 29, .94) !important;
+            border: 1px solid rgba(222, 117, 73, .78) !important;
+            box-shadow: 0 12px 35px rgba(0, 0, 0, .42) !important;
+        }}
+        [data-testid="stChatInput"] textarea {{
+            color: #F3EADC !important;
+        }}
+        .st-key-compositor_chat {{
+            position: relative;
+            z-index: 5;
+            padding: .65rem 0 .2rem;
+            background: transparent !important;
+        }}
+        [data-testid="stAlert"] {{
+            background: rgba(28, 20, 35, .88) !important;
+            color: #F3EADC !important;
+            border-color: rgba(117, 201, 214, .42) !important;
+        }}
+        [data-testid="stSidebar"] label, [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] h3 {{ color: #F3EADC !important; }}
+        [data-testid="stSidebar"] [data-baseweb="input"] input,
+        [data-testid="stSidebar"] [data-baseweb="select"] > div {{
+            background: rgba(37, 27, 43, .95) !important;
+            color: #F3EADC !important;
+            border-color: rgba(185, 154, 185, .52) !important;
+        }}
+        [data-testid="stSidebar"] input::placeholder {{ color: #B9AABD !important; }}
+        [data-testid="stSidebar"] [data-baseweb="select"] svg {{ fill: #75C9D6 !important; }}
+
         @media (max-width: 760px) {{
             .stMainBlockContainer {{
-                margin-top: 3.25rem;
+                min-height: calc(100vh - 1rem);
+                margin-top: 1rem;
                 padding: 1.4rem 1.1rem 6.5rem;
                 border-radius: 20px;
             }}
@@ -468,10 +608,12 @@ def main():
             icon="✨",
         )
 
-    for mensagem in mensagens:
-        mostrar_mensagem(mensagem)
+    if mensagens:
+        with st.container(height=560, border=False, key="historico_chat"):
+            for mensagem in mensagens:
+                mostrar_mensagem(mensagem)
 
-    with st.bottom:
+    with st.container(key="compositor_chat"):
         consulta = st.chat_input(
             "Pergunte ao oráculo sobre os livros…",
             disabled=not livros,
@@ -489,7 +631,6 @@ def main():
     ]
     pergunta = {"papel": "user", "texto": consulta}
     mensagens.append(pergunta)
-    mostrar_mensagem(pergunta)
     resposta = {
         "papel": "assistant",
         "fontes": [],
@@ -544,7 +685,7 @@ def main():
         )
 
     mensagens.append(resposta)
-    mostrar_mensagem(resposta)
+    st.rerun()
 
 
 if __name__ == "__main__":
